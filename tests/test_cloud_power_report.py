@@ -51,6 +51,9 @@ def _stub_homeassistant() -> None:
         "UnitOfEnergy", (), {"KILO_WATT_HOUR": "kWh"}
     )
     const.UnitOfPower = type("UnitOfPower", (), {"WATT": "W"})
+    const.UnitOfElectricCurrent = type(
+        "UnitOfElectricCurrent", (), {"AMPERE": "A"}
+    )
     const.UnitOfTemperature = type(
         "UnitOfTemperature", (), {"CELSIUS": "°C"}
     )
@@ -66,6 +69,12 @@ def _stub_homeassistant() -> None:
     const.CONF_PASSWORD = "password"
     ce = pkg("homeassistant.config_entries")
     ce.ConfigEntry = object
+    exc = pkg("homeassistant.exceptions")
+
+    class ConfigEntryNotReady(Exception):
+        pass
+
+    exc.ConfigEntryNotReady = ConfigEntryNotReady
     core = pkg("homeassistant.core")
     core.HomeAssistant = object
     core.callback = lambda f: f
