@@ -3,11 +3,32 @@
 Home Assistant custom integration for **Panasonic TaiSEIA** appliances — **LAN and/or Taiwan EMS cloud**, with a per-device control path you can choose.
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
+[![Release](https://img.shields.io/github/v/release/n71154plus/panasonic_taiseia_local?label=v1.7.7)](https://github.com/n71154plus/panasonic_taiseia_local/releases/tag/v1.7.7)
 [![Validate](https://github.com/n71154plus/panasonic_taiseia_local/actions/workflows/validate.yml/badge.svg)](https://github.com/n71154plus/panasonic_taiseia_local/actions/workflows/validate.yml)
 
 > **Traditional Chinese:** [README.zh-Hant.md](README.zh-Hant.md)
 
+## What's new in v1.7.7
+
+- **Restart while unpowered (#6):** if a smart plug has cut the module, setup does one 3-second TCP 57223 check and does not send SOAP to that address or walk dozens of services. The entry finishes loading, entities stay unavailable, and startup is no longer held until the 300-second cancel that left the entry in `setup_error`. When the socket accepts again, the next poll reloads and runs a full probe. A module that is already on still probes as before. Hybrid and cloud keep using EMS while LAN is down. If ALL_STATES is rejected but the port is open, per-service reads still run.
+
+Full notes: [Release v1.7.7](https://github.com/n71154plus/panasonic_taiseia_local/releases/tag/v1.7.7).
+
 ## Changelog
+
+### v1.7.7
+
+- See **What's new in v1.7.7** above.
+
+### v1.7.6
+
+- **Timer ceilings (#7 / #12):** service-list bytes form one big-endian maximum. An AC off-timer of `0x05 0xA0` is 1440 minutes, not a 5–160 range.
+- **AC energy (#13):** `0x27` is outdoor-unit watts copied onto every indoor head. Integration now bills those watts only while that indoor unit is on, matching the official app `UserGetInfo` Power screen (unused study/kitchen heads stay at 0 kWh).
+- **Dehumidifier modes (#6 / #14):** service `0x01` bytes are a 16-bit support mask, not a numeric range, so the picker no longer lists 「模式 30」–「模式 89」. On NXW/LXW, local code `3` is 送風 and `9` is 節能; catalog codes without a set bit (智慧節能 `1`, CommandList 送風 `7`) stay hidden. Until the service list is probed, the full CommandList is not shown, so a restart no longer briefly offers modes the module rejects.
+- **Remote beep:** dehumidifier `0x18` is labeled 「遠端控制提示音」 (0 = sound, 1 = mute) and only covers remote/LAN writes; panel keys still beep.
+- **AC power entities (#16):** operating power is a watt sensor; current/energy registers are no longer misclassified as switches when the span is 0.
+- **Dehumidifier air quality (#15):** PM2.5, PM1.0, PM Level, and odor are probed even when omitted from the advertised 0x07 service list.
+- **Cloud monthly energy (#17):** appliances without LAN power telemetry read the official app Power report (`UserGetInfo`) for the current-month kWh total.
 
 ### v1.7.5
 
@@ -80,7 +101,7 @@ You can keep the official app and other HA cloud integrations. Prefer **not** ha
 
 | Class | DeviceType | Supported? | Notes |
 | --- | --- | --- | --- |
-| **Air conditioner** | `1` | **Yes** | Prefer **hybrid** so cloud OFF can trigger official 乾燥防霉 |
+| **Air conditioner** | `1` | **Yes** | Prefer **hybrid** so cloud OFF can trigger official 乾燥防霉; with **LAN 關機執行乾燥防霉** enabled in device options, local/hybrid LAN fallback sends stop code `2` and dries too |
 | **Refrigerator** | `2` | **Yes** (typical cloud-only) | `climate` N/A → CommandList entities; import as **(雲端)** when no `57223` |
 | **Washer** | `3` | **Yes** | No dedicated washer platform → switches/selects/sensors from CommandList |
 | **Dehumidifier** | `4` | **Yes** | Same as AC when LAN is open |
@@ -114,6 +135,9 @@ Override ModelType in device options.
 
 - **climate** / **humidifier** for AC / dehumidifier; other classes use CommandList sensors / switches / selects / numbers / buttons
 - Control modes: **hybrid** / **local** / **cloud**
+- AC option **LAN 關機執行乾燥防霉**: power-off over LAN sends the firmware's
+  undocumented stop code `2` (power off + mold-prevention drying) instead of
+  plain `0`, which stops without drying
 - SSDP + LAN `57223` discovery; EMS import (LAN + cloud-only)
 - Optional energy sensors (period / total / house)
 

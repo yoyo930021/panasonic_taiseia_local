@@ -163,8 +163,11 @@ class PowerReportParsing(unittest.TestCase):
         self.assertEqual(body["name"], "Power")
         self.assertEqual(body["unit"], "day")
         self.assertEqual(body["max_num"], 31)
-        # from = first day of the current month, YYYY/MM/DD
-        self.assertRegex(body["from"], r"^\d{4}/\d{2}/01$")
+        # Official app posts today's date with unit=day / max_num=31.
+        self.assertRegex(body["from"], r"^\d{4}/\d{2}/\d{2}$")
+        from datetime import datetime
+
+        self.assertEqual(body["from"], datetime.today().strftime("%Y/%m/%d"))
 
     def test_gwid_uppercase_variant(self):
         payload = {"GwList": [{"GWID": "abc", "Total_kwh": 1}]}

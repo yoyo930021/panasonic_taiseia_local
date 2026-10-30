@@ -1,5 +1,7 @@
 """Constants for Panasonic TaiSEIA local integration."""
 
+from __future__ import annotations
+
 from homeassistant.components.climate import HVACMode
 
 DOMAIN = "panasonic_taiseia_local"
@@ -20,6 +22,9 @@ CONF_REFRESH_TOKEN = "refresh_token"
 # CZ-T006 modules choke when many LAN clients hit SetSaanet at once (HA boot /
 # aligned coordinator ticks). Defaults; overridable via shared LAN settings.
 DEFAULT_REQUEST_TIMEOUT = 12.0
+# One TCP connect during setup / offline polls. A live module accepts in
+# milliseconds; a powered-off host fails here instead of SOAP 12s×3×N.
+LAN_REACH_TIMEOUT = 3.0
 DEFAULT_MAX_CONCURRENT = 2
 DEFAULT_REQUEST_RETRIES = 3
 DEFAULT_REQUEST_RETRY_DELAY = 0.6
@@ -79,6 +84,10 @@ CONTROL_MODE_OPTIONS = {
     CONTROL_MODE_LOCAL: "僅本地",
     CONTROL_MODE_CLOUD: "僅雲端",
 }
+
+# AC only: power off over LAN with the undocumented "power off + mold-dry"
+# stop code instead of plain 0 (see SVC_POWER_LAN_MOLD_DRY).
+CONF_LAN_MOLD_DRY = "lan_mold_dry"
 
 # Cloud metadata cached on device entries (from EMS)
 CONF_CLOUD_NICKNAME = "cloud_nickname"
@@ -186,6 +195,11 @@ REG_ALL_STATES = 0x08
 
 # ---- Shared / AC services ----
 SVC_POWER = 0x00
+# AC firmware accepts power=2 over LAN: stop and run the mold-prevention
+# drying cycle (same behaviour as a cloud power-off). CommandList documents
+# only 0=停止/1=運轉; 2 was verified on CS-RX50JA2 (PXGD) against the cloud
+# path. Plain 0 over LAN stops without drying (upstream issue #3).
+SVC_POWER_LAN_MOLD_DRY = 2
 SVC_MODE = 0x01
 SVC_FAN = 0x02
 SVC_TEMP_SET = 0x03
@@ -293,14 +307,19 @@ DEHUMIDIFIER_AVAILABLE_HUMIDITY = {
     0: 40, 1: 45, 2: 50, 3: 55, 4: 60, 5: 65, 6: 70,
 }
 # Panasonic App / panel labels for dehumidifier 0x01 (ModelType may rename a few).
+# NXW/LXW local codes (verified on F-YV28NX / F-YV32LX): 3=送風, 9=節能.
+# Official CommandList still lists 送風 as 7; the module bitmap decides which
+# code is offered. JHW renames 7 to 空氣清淨.
 DEHUMIDIFIER_AVAILABLE_MODE = {
     0: "連續除濕",
-    1: "自動除濕",  # LXW/NXW CommandList: 智慧節能 (ECONAVI)
+    1: "自動除濕",  # LXW/NXW CommandList: 智慧節能 (ECONAVI) — often unset locally
     2: "防霉抑菌",
+    3: "送風",
     4: "衣物乾燥",
     5: "保持乾燥",
     6: "濕度設定",
-    7: "送風",  # JHW catalog uses 空氣清淨 for the same code
+    7: "送風",
+    9: "節能",
 }
 DEHUMIDIFIER_AVAILABLE_FAN = {
     0: "自動",
@@ -320,6 +339,8 @@ LABEL_NANOE = "nanoe"
 LABEL_NANOEX = "nanoeX"
 LABEL_ECONAVI = "ECONAVI"
 LABEL_BUZZER = "操作提示音"
+# Dehumidifier 0x18 beeps on remote/LAN writes, not panel keypresses.
+LABEL_DH_BUZZER = "遠端控制提示音"
 LABEL_TURBO = "急速"
 LABEL_CLIMATE_SLEEP = "睡眠"
 LABEL_CLIMATE_MOLD_PREVENTION = "乾燥防霉"
@@ -406,7 +427,7 @@ NUMBER_DEFINITIONS_AC = [
 
 SWITCH_DEFINITIONS_DH = [
     (SVC_DH_NANOE, STATUS[SVC_DH_NANOE], LABEL_NANOEX, ICON_NANOE, False, False),
-    (SVC_DH_BUZZER, STATUS[SVC_DH_BUZZER], LABEL_BUZZER, ICON_BUZZER, True, False),
+    (SVC_DH_BUZZER, STATUS[SVC_DH_BUZZER], LABEL_DH_BUZZER, ICON_BUZZER, True, False),
 ]
 SELECT_DEFINITIONS_DH = [
     (SVC_DH_FAN, STATUS[SVC_DH_FAN], LABEL_DH_FAN, ICON_FAN, DEHUMIDIFIER_AVAILABLE_FAN),

@@ -21,6 +21,7 @@ from .const import (
     DEHUMIDIFIER_AVAILABLE_MODE,
     DEVICE_TYPE_NAMES,
     LABEL_BUZZER,
+    LABEL_DH_BUZZER,
     LABEL_CLIMATE_CLEAN,
     LABEL_CLIMATE_INDICATOR,
     LABEL_CLIMATE_MOLD_PREVENTION,
@@ -193,7 +194,7 @@ _LABELS_DEHUMIDIFIER: dict[int, str] = {
     SVC_DH_TANK: LABEL_TANK,
     SVC_DH_NANOE: "nanoeX(脫臭)",  # 少數機種僅 nanoe → ModelType 覆寫
     SVC_DH_FAN: LABEL_DH_FAN,
-    SVC_DH_BUZZER: LABEL_BUZZER,
+    SVC_DH_BUZZER: LABEL_DH_BUZZER,
     0x50: "錯誤訊息警告",
     0x51: "異味偵測",
     0x52: "PM Level",
@@ -477,7 +478,14 @@ def _decode_ac(service_id: int, val: int) -> str | None:
 
 
 def _decode_dehumidifier(service_id: int, val: int) -> str | None:
-    if service_id in (SVC_POWER, SVC_DH_NANOE, SVC_DH_BUZZER, SVC_DH_TANK):
+    if service_id == SVC_DH_BUZZER:
+        # TaiSEIA SAA 控制提示音：0 有聲、1 無聲。和 1=開 的開關相反。
+        if val == 0:
+            return "有聲"
+        if val == 1:
+            return "無聲"
+        return str(val)
+    if service_id in (SVC_POWER, SVC_DH_NANOE, SVC_DH_TANK):
         return _on_off(val)
     if service_id == SVC_MODE:
         return DEHUMIDIFIER_AVAILABLE_MODE.get(val, str(val))

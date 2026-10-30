@@ -17,6 +17,7 @@ from .const import (
     DEFAULT_REQUEST_RETRY_DELAY,
     DEFAULT_REQUEST_TIMEOUT,
     DEVICE_TYPE_NAMES,
+    LAN_REACH_TIMEOUT,
     ENTITY_SERVICES_BY_TYPE,
     PROBED_CORE_BY_TYPE,
     REG_ALL_STATES,
@@ -73,6 +74,11 @@ class TaiSeiaError(Exception):
 
 class TaiSeiaCommandError(TaiSeiaError):
     """Device returned FFFFFFFFFFFF or invalid PDU."""
+
+
+def is_lan_transport_error(err: BaseException) -> bool:
+    """True when the host never answered, rather than rejecting a command."""
+    return _is_transient(err) and not isinstance(err, TaiSeiaError)
 
 
 def xor_checksum(data: bytes) -> int:
@@ -428,16 +434,45 @@ class TaiSeiaClient:
             return 0, 0
         return info.min_value, info.max_value
 
+    async def _tcp_open(self, timeout: float = LAN_REACH_TIMEOUT) -> bool:
+        """One TCP connect. A powered-off module fails here; SOAP is not sent."""
+        if not self.host or self.host in ("", "0.0.0.0"):
+            return False
+        try:
+            _reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(self.host, self.port), timeout=timeout
+            )
+        except Exception:  # noqa: BLE001
+            return False
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except Exception:  # noqa: BLE001
+            pass
+        return True
+
     async def async_fetch_status(self) -> dict[str, str]:
         """Fetch ALL_STATES and normalize to status dict."""
         base = ENTITY_SERVICES_BY_TYPE.get(self.device.sa_type_id, [])
         poll = list(dict.fromkeys([*base, *self.poll_services]))
+        probed = self.device.services or {}
+        extra = PROBED_CORE_BY_TYPE.get(self.device.sa_type_id, frozenset())
         try:
             resp = await self.async_read(TYPE_REGISTER, REG_ALL_STATES)
             states = parse_all_states(resp)
             all_states_ok = True
         except Exception as err:  # noqa: BLE001
             if not isinstance(err, TaiSeiaError) and not _is_transient(err):
+                raise
+            # The module answered (or rejected) the command: keep the per-service
+            # fallback. A powered-off host only times out — do not walk the
+            # service list, or one offline unit blocks the LAN semaphore.
+            if is_lan_transport_error(err) and not await self._tcp_open():
+                _LOGGER.info(
+                    "TaiSEIA %s unreachable (%s); skipping per-service reads",
+                    self.host,
+                    err,
+                )
                 raise
             _LOGGER.warning("ALL_STATES failed on %s: %s; falling back", self.host, err)
             states = {}
@@ -446,7 +481,7 @@ class TaiSeiaClient:
             limit = max(len(base), 24) if base else 24
             poll = poll[:limit]
             for svc in poll:
-                if self.device.services and svc not in self.device.services:
+                if probed and svc not in probed and svc not in extra:
                     continue
                 try:
                     states[svc] = await self.async_read_device(svc)
@@ -455,15 +490,11 @@ class TaiSeiaClient:
         # When ALL_STATES succeeded, only backfill core entity services — not the
         # full CommandList (avoids N sequential reads every poll).
         fill = base if all_states_ok and states else poll
-        probed = self.device.services or {}
-        extra = PROBED_CORE_BY_TYPE.get(self.device.sa_type_id, frozenset())
         fill = list(dict.fromkeys([*fill, *[s for s in sorted(extra) if s not in probed]]))
         for svc in fill:
             if svc in states:
                 continue
-            if not probed or svc in probed or svc in PROBED_CORE_BY_TYPE.get(
-                self.device.sa_type_id, frozenset()
-            ):
+            if not probed or svc in probed or svc in extra:
                 try:
                     states[svc] = await self.async_read_device(svc)
                 except Exception:  # noqa: BLE001
